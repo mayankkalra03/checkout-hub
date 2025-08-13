@@ -48,7 +48,7 @@ const CloseIcon = () => <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w
 const Modal = ({ isOpen, onClose, title, children }) => {
     if (!isOpen) return null;
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex justify-center items-center p-4" onClick={onClose}>
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex justify-center items-center p-4" onClick={onClose}>
             <div className="bg-slate-800 rounded-lg shadow-xl w-full max-w-md" onClick={e => e.stopPropagation()}>
                 <div className="p-6 border-b border-slate-700 flex justify-between items-center">
                     <h3 className="text-xl font-bold text-white">{title}</h3>
@@ -160,6 +160,13 @@ function App() {
                 case 'editLink':
                     await updateDoc(doc(db, linksCollectionPath, modalState.data.id), { title: formData.title, url: formData.url });
                     break;
+                case 'confirmDelete':
+                    if (modalState.data.type === 'project') {
+                        await handleDeleteProject(modalState.data.id);
+                    } else {
+                        await handleDeleteLink(modalState.data.id);
+                    }
+                    break;
                 default:
                     break;
             }
@@ -171,7 +178,7 @@ function App() {
     };
     
     const handleDeleteProject = async (projectId) => {
-        if (!db || !window.confirm("Are you sure? This will delete the project and all its links.")) return;
+        if (!db) return;
         try {
             const linksToDelete = allLinks.filter(link => link.projectId === projectId);
             const batch = writeBatch(db);
@@ -230,7 +237,7 @@ function App() {
 
     return (
         <div className="flex h-screen bg-slate-900 text-slate-200 font-sans">
-            <aside className={`w-72 bg-slate-800/50 p-4 flex-col shrink-0 border-r border-slate-700 absolute md:relative z-20 md:flex h-full transition-transform transform ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0`}>
+            <aside className={`w-72 bg-slate-800/80 backdrop-blur-sm p-4 flex-col shrink-0 border-r border-slate-700 absolute md:relative z-20 md:flex h-full transition-transform transform ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0`}>
                 <div className="flex justify-between items-center mb-6">
                     <h1 className="text-2xl font-bold text-white">Checkout Hub</h1>
                     <button onClick={() => setSidebarOpen(false)} className="md:hidden text-slate-400 hover:text-white"><CloseIcon /></button>
@@ -245,9 +252,9 @@ function App() {
                             <li key={project.id}>
                                 <a href="#" onClick={(e) => { e.preventDefault(); setSelectedProject(project); setSidebarOpen(false); }} className={`flex justify-between items-center p-3 rounded-md transition group ${selectedProject?.id === project.id ? 'bg-teal-600 text-white shadow-lg' : 'hover:bg-slate-700'}`}>
                                     <span className="font-semibold truncate">{project.name}</span>
-                                    <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
-                                        <button onClick={(e) => { e.stopPropagation(); openModal('editProject', project); }} className="p-1 text-slate-400 hover:text-white"><EditIcon /></button>
-                                        <button onClick={(e) => { e.stopPropagation(); handleDeleteProject(project.id); }} className="p-1 text-slate-400 hover:text-white"><TrashIcon /></button>
+                                    <div className="flex items-center">
+                                        <button onClick={(e) => { e.stopPropagation(); openModal('editProject', project); }} className="p-1 text-white hover:cursor-pointer"><EditIcon /></button>
+                                        <button onClick={(e) => { e.stopPropagation(); openModal('confirmDelete', { type: 'project', id: project.id, name: project.name }); }} className="p-1 text-white hover:cursor-pointer"><TrashIcon /></button>
                                     </div>
                                 </a>
                             </li>
@@ -306,7 +313,7 @@ function App() {
                                     <div className="flex items-center gap-2 flex-shrink-0">
                                         <button onClick={() => handleCopyToClipboard(link.url, link.id)} className="p-2 rounded-md hover:bg-slate-700 text-slate-400 hover:text-white transition" title="Copy URL"><CopyIcon copied={copiedLinkId === link.id} /></button>
                                         <button onClick={() => openModal('editLink', link)} className="p-2 rounded-md hover:bg-slate-700 text-slate-400 hover:text-white transition" title="Edit Link"><EditIcon /></button>
-                                        <button onClick={() => handleDeleteLink(link.id)} className="p-2 rounded-md hover:bg-red-500/20 text-slate-400 hover:text-red-400 transition" title="Delete Link"><TrashIcon /></button>
+                                        <button onClick={() => openModal('confirmDelete', { type: 'link', id: link.id, name: link.title })} className="p-2 rounded-md hover:bg-red-500/20 text-slate-400 hover:text-red-400 transition" title="Delete Link"><TrashIcon /></button>
                                     </div>
                                 </div>
                             ))}
@@ -323,34 +330,47 @@ function App() {
             <Modal isOpen={!!modalState.type} onClose={closeModal} title={
                 modalState.type === 'addProject' ? 'Add New Project' :
                 modalState.type === 'editProject' ? 'Edit Project' :
-                modalState.type === 'addLink' ? 'Add New Link' : 'Edit Link'
+                modalState.type === 'addLink' ? 'Add New Link' :
+                modalState.type === 'editLink' ? 'Edit Link' : 'Confirm Deletion'
             }>
-                <form onSubmit={handleFormSubmit}>
-                    {(modalState.type === 'addProject' || modalState.type === 'editProject') && (
-                        <div className="space-y-4">
-                            <label className="block">
-                                <span className="text-slate-300">Project Name</span>
-                                <input type="text" name="name" value={formData.name || ''} onChange={handleFormChange} className="mt-1 block w-full bg-slate-700 text-white placeholder-slate-400 rounded-md px-4 py-3 border border-slate-600 focus:outline-none focus:ring-2 focus:ring-teal-500"/>
-                            </label>
+                {modalState.type === 'confirmDelete' ? (
+                    <div>
+                        <p className="text-slate-300">Are you sure you want to delete <strong className="text-white">{modalState.data.name}</strong>? This action cannot be undone.</p>
+                        <div className="mt-6 flex justify-end">
+                            <button type="button" onClick={closeModal} className="bg-slate-600 hover:bg-slate-500 text-white font-bold py-2 px-4 rounded-md transition mr-2">Cancel</button>
+                            <form onSubmit={handleFormSubmit} className="inline">
+                                <button type="submit" className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-md transition">Delete</button>
+                            </form>
                         </div>
-                    )}
-                    {(modalState.type === 'addLink' || modalState.type === 'editLink') && (
-                        <div className="space-y-4">
-                            <label className="block">
-                                <span className="text-slate-300">Link Title</span>
-                                <input type="text" name="title" value={formData.title || ''} onChange={handleFormChange} className="mt-1 block w-full bg-slate-700 text-white placeholder-slate-400 rounded-md px-4 py-3 border border-slate-600 focus:outline-none focus:ring-2 focus:ring-teal-500"/>
-                            </label>
-                            <label className="block">
-                                <span className="text-slate-300">URL</span>
-                                <input type="url" name="url" value={formData.url || ''} onChange={handleFormChange} className="mt-1 block w-full bg-slate-700 text-white placeholder-slate-400 rounded-md px-4 py-3 border border-slate-600 focus:outline-none focus:ring-2 focus:ring-teal-500"/>
-                            </label>
-                        </div>
-                    )}
-                    <div className="mt-6 flex justify-end">
-                        <button type="button" onClick={closeModal} className="bg-slate-600 hover:bg-slate-500 text-white font-bold py-2 px-4 rounded-md transition mr-2">Cancel</button>
-                        <button type="submit" className="bg-teal-600 hover:bg-teal-700 text-white font-bold py-2 px-4 rounded-md transition">Save</button>
                     </div>
-                </form>
+                ) : (
+                    <form onSubmit={handleFormSubmit}>
+                        {(modalState.type === 'addProject' || modalState.type === 'editProject') && (
+                            <div className="space-y-4">
+                                <label className="block">
+                                    <span className="text-slate-300">Project Name</span>
+                                    <input type="text" name="name" value={formData.name || ''} onChange={handleFormChange} required className="mt-1 block w-full bg-slate-700 text-white placeholder-slate-400 rounded-md px-4 py-3 border border-slate-600 focus:outline-none focus:ring-2 focus:ring-teal-500"/>
+                                </label>
+                            </div>
+                        )}
+                        {(modalState.type === 'addLink' || modalState.type === 'editLink') && (
+                            <div className="space-y-4">
+                                <label className="block">
+                                    <span className="text-slate-300">Link Title</span>
+                                    <input type="text" name="title" value={formData.title || ''} onChange={handleFormChange} required className="mt-1 block w-full bg-slate-700 text-white placeholder-slate-400 rounded-md px-4 py-3 border border-slate-600 focus:outline-none focus:ring-2 focus:ring-teal-500"/>
+                                </label>
+                                <label className="block">
+                                    <span className="text-slate-300">URL</span>
+                                    <input type="url" name="url" value={formData.url || ''} onChange={handleFormChange} required className="mt-1 block w-full bg-slate-700 text-white placeholder-slate-400 rounded-md px-4 py-3 border border-slate-600 focus:outline-none focus:ring-2 focus:ring-teal-500"/>
+                                </label>
+                            </div>
+                        )}
+                        <div className="mt-6 flex justify-end">
+                            <button type="button" onClick={closeModal} className="bg-slate-600 hover:bg-slate-500 text-white font-bold py-2 px-4 rounded-md transition mr-2">Cancel</button>
+                            <button type="submit" className="bg-teal-600 hover:bg-teal-700 text-white font-bold py-2 px-4 rounded-md transition">Save</button>
+                        </div>
+                    </form>
+                )}
             </Modal>
             {error && <div className="fixed bottom-4 right-4 bg-red-500 text-white py-2 px-4 rounded-lg shadow-lg" onClick={() => setError('')}>{error}</div>}
         </div>
